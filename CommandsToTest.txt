@@ -1,0 +1,8 @@
+Test Sent To Collector
+sudo softflowd -r wslpcap.pcap -n localhost:9995 -v 5 -d -p tcp
+
+Run Collector:
+nfcapd -l nfcapd/logs -p 9995
+
+Show:
+nfdump -r <File>
