@@ -25,7 +25,7 @@ int sock;				   // socket descriptor
 struct sockaddr_in server; // address structure of the server
 struct hostent *servent;   // network host entry required by gethostbyname()
 
-void display_usage(const char *prog_name)
+void printUsage(const char *prog_name)
 {
 	cerr << "Usage: " << prog_name << " <host>:<port> <pcap_file_path> [-a <active_timeout>] [-i <inactive_timeout>]\n"
 		 << "Parameters:\n"
@@ -36,7 +36,13 @@ void display_usage(const char *prog_name)
 		 << "  -i <inactive_timeout> - Inactive flow timeout in seconds (default: 60)\n";
 }
 
-void mypcap_handler(u_char *args, const struct pcap_pkthdr *header, const u_char *packet)
+int handleError(const string &message)
+{
+	cerr << message << endl;
+	return EXIT_FAILURE;
+}
+
+void handlePacket(u_char *args, const struct pcap_pkthdr *header, const u_char *packet)
 {
 	if (!boot_time_set)
 	{
@@ -49,12 +55,12 @@ void mypcap_handler(u_char *args, const struct pcap_pkthdr *header, const u_char
 	vector<record_flow> flow_export;
 	int flows_count;
 
-	flow_cache_loop(packet, sysuptime, &flow_export); // go through the flow cache and filling the vector with flows to export
+	processFlowCache(packet, sysuptime, &flow_export); // go through the flow cache and filling the vector with flows to export
 	flows_count = flow_export.size();
 
 	if (flows_count != 0)
 	{
-		send_netflow_packets(header->ts, sysuptime, &flow_export); // exporting flows sending netflow packets to a collector
+		exportNetFlowPackets(header->ts, sysuptime, &flow_export); // exporting flows sending netflow packets to a collector
 
 		flow_seq += flows_count;
 	}
@@ -65,7 +71,7 @@ void mypcap_handler(u_char *args, const struct pcap_pkthdr *header, const u_char
 	sysuptime_last = sysuptime;
 }
 
-void flow_cache_loop(const u_char *packet, time_t sysuptime, vector<record_flow> *flow_export)
+void processFlowCache(const u_char *packet, time_t sysuptime, vector<record_flow> *flow_export)
 {
 	vector<record_flow>::iterator it;
 	record_flow record;
@@ -138,32 +144,22 @@ void flow_cache_loop(const u_char *packet, time_t sysuptime, vector<record_flow>
 			it--;
 		}
 	}
-
-	/*if (int(flow_cache.size()) > flow_maxCount)
-	{
-		// cout << "export the oldest flow" << endl;
-		it = flow_cache.begin();
-
-		flow_export->push_back(*it);
-		flow_cache.erase(it);
-		it--;
-	}*/
 }
 
-void fill_buffer_header(const struct timeval tv, time_t sysuptime, int flows_count, u_char *buffer)
+void populateHeaderBuffer(const struct timeval tv, time_t sysuptime, int flows_count, u_char *buffer)
 {
 	header_flow *headerf = (header_flow *)(buffer);
 
 	*headerf = {htons(5), htons(flows_count), htonl(sysuptime), htonl(tv.tv_sec), htonl(tv.tv_usec * 1000), htonl(flow_seq), 0, 0, 0};
 }
 
-int fill_buffer_flows(vector<record_flow> *flow_export, int number, u_char *buffer)
+int populateFlowBuffer(vector<record_flow> *flow_export, int number, u_char *buffer)
 {
 	int counter = 0;
 
 	for (auto it = flow_export->begin(); it != flow_export->end() && counter != number; ++it)
 	{
-		record_net_byte_order(&*it);
+		convertNetFlowToHostOrder(&*it);
 		memcpy(buffer + counter * SIZE_NF_RECORD, &*it, SIZE_NF_RECORD);
 
 		flow_export->erase(it);
@@ -174,7 +170,7 @@ int fill_buffer_flows(vector<record_flow> *flow_export, int number, u_char *buff
 	return counter;
 }
 
-void record_net_byte_order(record_flow *rec)
+void convertNetFlowToHostOrder(record_flow *rec)
 {
 	rec->dPkts = htonl(rec->dPkts);
 	rec->dOctets = htonl(rec->dOctets);
@@ -182,16 +178,16 @@ void record_net_byte_order(record_flow *rec)
 	rec->Last = htonl(rec->Last);
 }
 
-void send_netflow_packets(const struct timeval tv, time_t sysuptime, vector<record_flow> *flow_export)
+void exportNetFlowPackets(const struct timeval tv, time_t sysuptime, vector<record_flow> *flow_export)
 {
 	int flows_count = flow_export->size();
-	int number;
 	u_char buffer[PACKET_SIZE];
+
 	while (flows_count > 0)
 	{
 		int number = std::min(flows_count, 30);
-		fill_buffer_header(tv, sysuptime, number, buffer);
-		fill_buffer_flows(flow_export, number, buffer + SIZE_NF_HEADER);
+		populateHeaderBuffer(tv, sysuptime, number, buffer);
+		populateFlowBuffer(flow_export, number, buffer + SIZE_NF_HEADER);
 		sendto(sock, buffer, SIZE_NF_HEADER + number * SIZE_NF_RECORD, 0, (struct sockaddr *)&server, sizeof(server));
 		flows_count -= number;
 	}
@@ -203,15 +199,14 @@ int main(int argc, char *argv[])
 {
 	if (argc < 3 || argc > 7)
 	{
-		display_usage(argv[0]);
-		return EXIT_FAILURE;
+		printUsage(argv[0]);
+		return handleError("Args count isnt correct!");
 	}
 
 	string collector = argv[1]; // The first argument is the collector
 	string pcap_file = argv[2]; // The second argument is the PCAP file
-	int active_timeout = DEFAULT_TIMEOUT;
-	int inactive_timeout = DEFAULT_TIMEOUT;
-
+	activeTimer_ms = DEFAULT_ACTIVE_TIMEOUT;
+	inactiveTimer_ms = DEFAULT_INACTIVE_TIMEOUT;
 	// Parse optional -a and -i parameters
 	int opt;
 	while ((opt = getopt(argc, argv, "a:i:")) != -1)
@@ -221,49 +216,44 @@ int main(int argc, char *argv[])
 		case 'a':
 			try
 			{
-				active_timeout = stoi(optarg);
 				activeTimer_ms = atof(optarg) * 1000;
 			}
 			catch (const invalid_argument &)
 			{
-				cerr << "Invalid active timeout value.\n";
-				display_usage(argv[0]);
-				return EXIT_FAILURE;
+				printUsage(argv[0]);
+				return handleError("Invalid active timeout value.\n");
 			}
 			break;
 		case 'i':
 			try
 			{
-				inactive_timeout = stoi(optarg);
 				inactiveTimer_ms = atof(optarg) * 1000;
 			}
 			catch (const invalid_argument &)
 			{
-				cerr << "Invalid inactive timeout value.\n";
-				display_usage(argv[0]);
-				return EXIT_FAILURE;
+				printUsage(argv[0]);
+				return handleError("Invalid active timeout value.\n");
 			}
 			break;
 		default:
-			display_usage(argv[0]);
-			return EXIT_FAILURE;
+			printUsage(argv[0]);
+			return handleError("Some Error in args.");
 		}
 	}
 
 	// Ensure the collector and pcap file are provided
 	if (collector.empty() || pcap_file.empty())
 	{
-		display_usage(argv[0]);
-		return EXIT_FAILURE;
+		printUsage(argv[0]);
+		return handleError("Collector or Pcap not provided.");
 	}
 
 	// Split collector into host and port
 	size_t colon_pos = collector.find(':');
 	if (colon_pos == string::npos || colon_pos == 0 || colon_pos == collector.size() - 1)
 	{
-		cerr << "Invalid collector format. Use <host>:<port>.\n";
-		display_usage(argv[0]);
-		return EXIT_FAILURE;
+		printUsage(argv[0]);
+		return handleError("Invalid collector format. Use <host>:<port>.\n");
 	}
 
 	string host = collector.substr(0, colon_pos);
@@ -273,62 +263,41 @@ int main(int argc, char *argv[])
 	char errbuf[PCAP_ERRBUF_SIZE];
 	pcap_t *handle = pcap_open_offline(pcap_file.c_str(), errbuf);
 	if (handle == nullptr)
-	{
-		cerr << "Failed to open PCAP file: " << errbuf << endl;
-		return EXIT_FAILURE;
-	}
+		return handleError("Failed to open PCAP file");
 
 	memset(&server, 0, sizeof(server));
 	server.sin_family = AF_INET;
 
 	if ((servent = gethostbyname(host.c_str())) == NULL)
-	{
-		cerr << "gethostbyname() failed" << endl;
-		return EXIT_FAILURE;
-	}
+		return handleError("gethostbyname() failed");
 
 	memcpy(&server.sin_addr, servent->h_addr, servent->h_length);
 
 	server.sin_port = htons(port);
 
 	if ((sock = socket(AF_INET, SOCK_DGRAM, 0)) == -1)
-	{
-		cerr << "socket() failed" << endl;
-		return EXIT_FAILURE;
-	}
+		return handleError("socket() failed");
 
-	struct pcap_pkthdr *header;
 	struct bpf_program fp; // the compiled filter
 
 	// compile the filter
 	if (pcap_compile(handle, &fp, "tcp", 0, PCAP_NETMASK_UNKNOWN) == -1)
-	{
-		cerr << "pcap_compile() Error";
-		return EXIT_FAILURE;
-	}
+		return handleError("pcap_compile() Error");
 
 	// set the filter to the packet capture handle
 	if (pcap_setfilter(handle, &fp) == -1)
-	{
-		cerr << "pcap_setfilter() Error";
-		return EXIT_FAILURE;
-	}
+		return handleError("pcap_setfilter() Error");
 
 	// packets are processed in turn by function mypcap_handler() in the infinite loop
-	if (pcap_loop(handle, -1, mypcap_handler, NULL) == -1)
-	{
-		cerr << "pcap_loop() Error";
-		return EXIT_FAILURE;
-	}
+	if (pcap_loop(handle, -1, handlePacket, NULL) == -1)
+		return handleError("pcap_loop() Error");
 
+
+	pcap_freecode(&fp); 
 	pcap_close(handle);
 
-	/*
-	 * Exporting remaining flows in the flow cache.
-	 */
-	int residue_size = flow_cache.size();
+	if (flow_cache.size() > 0)
+		exportNetFlowPackets(tv_last, sysuptime_last, &flow_cache);
 
-	if (residue_size > 0)
-		send_netflow_packets(tv_last, sysuptime_last, &flow_cache);
 	return EXIT_SUCCESS;
 }
