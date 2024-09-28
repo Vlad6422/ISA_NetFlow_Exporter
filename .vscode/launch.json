@@ -5,7 +5,7 @@
             "type": "cppdbg",
             "request": "launch",
             "program": "${fileDirname}/${fileBasenameNoExtension}",
-            "args": ["192.168.0.1:5666","wslpcap.pcap"],
+            "args": ["192.168.0.1:5666","mypcap.pcap","-a","60","-i","60"],
             "stopAtEntry": false,
             "cwd": "${fileDirname}",
             "environment": [],

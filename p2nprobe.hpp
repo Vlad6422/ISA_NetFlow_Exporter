@@ -9,18 +9,22 @@
 #include <getopt.h>
 #include <string.h>
 #include <vector>
-#include <netinet/ip.h>  // IP header
-#include <netinet/tcp.h> // TCP header
-#include <netinet/ether.h> // Ethernet header
+#include <math.h>
+#include <netinet/ip.h>
+#include <netinet/tcp.h>
+#include <netinet/ether.h>
 using namespace std;
 
 #define DEFAULT_TIMEOUT 60
 #define SIZE_ETHERNET   14
+#define SIZE_NF_HEADER   24
+#define SIZE_NF_RECORD   48
+//#define PCAP_ERRBUF_SIZE (256)
+#define PACKET_SIZE 1464
 
-/* Structures */
 
 /* Record Flow Structure */
-typedef struct record_flow
+typedef struct FlowRecord
 {
 	uint32_t srcaddr;      // 0 - 4 bytes: Source IP address
 	uint32_t dstaddr;      // 4 - 8 bytes: Destination IP address
@@ -61,3 +65,28 @@ typedef struct header_flow
 /// @brief Display Help
 /// @param prog_name Name of Program
 void display_usage(const char* prog_name);
+
+/// @brief Packet handler function for processing and exporting NetFlow records
+/// @param args Additional arguments (unused in this context)
+/// @param header PCAP packet header containing timestamp and packet information
+/// @param packet Captured packet data
+/// 
+/// This function processes network packets captured by PCAP, calculates the system uptime,
+/// updates the flow cache, and exports flow records to a NetFlow collector. If the flow cache 
+/// contains data, the function sends NetFlow packets to the collector and updates the sequence 
+/// number of the exported flows. It also keeps track of the last packet's timestamp for future use.
+/// 
+/// @note This function should be used in conjunction with pcap_loop, as shown:
+/// @code
+/// if (pcap_loop(handle, -1, packet_handler, NULL) == -1)
+/// {
+///     cerr << "pcap_loop() Error";
+///     return EXIT_FAILURE;
+/// }
+/// @endcode
+void packet_handler(u_char *args, const struct pcap_pkthdr *header, const u_char *packet);
+void flow_cache_loop(const u_char *packet, time_t sysuptime, vector<record_flow> *flow_export);
+void send_netflow_packets(const struct timeval tv, time_t sysuptime, vector<record_flow> *flow_export);
+void record_net_byte_order(record_flow *rec);
+int fill_buffer_flows(vector<record_flow> *flow_export, int number, u_char *buffer);
+void fill_buffer_header(const struct timeval tv, time_t sysuptime, int flows_count, u_char *b);
