@@ -70,69 +70,65 @@ typedef struct header_flow
 	uint16_t sampling_interval; // 22 - 24 bytes: Sampling interval (in seconds)
 } header_flow;
 
-/// @brief Display Help
-/// @param prog_name Name of the program, used to display usage instructions.
-void printUsage(const char* prog_name);
-
 /// @brief Packet handler function for processing and exporting NetFlow records
 /// 
 /// This function processes captured packets and extracts NetFlow records for exporting.
 /// It should be used in conjunction with pcap_loop for continuous packet processing.
 ///
-/// @param args Additional arguments (unused in this context).
-/// @param header PCAP packet header containing timestamp and packet information.
-/// @param packet Captured packet data containing the raw bytes of the packet.
+/// @param user_data Additional arguments (unused in this context).
+/// @param pkt_header PCAP packet header containing timestamp and packet information.
+/// @param raw_packet Captured packet data containing the raw bytes of the packet.
 /// 
 /// @note This function should be used in conjunction with pcap_loop, as shown:
 ///       pcap_loop(handle, -1, packet_handler, NULL)
-void handlePacket(u_char *args, const struct pcap_pkthdr *header, const u_char *packet);
+void handlePacket(u_char *user_data, const struct pcap_pkthdr *pkt_header, const u_char *raw_packet);
 
 /// @brief Processes a packet to extract flow information and store it in a flow cache
 ///
 /// This function takes a captured packet and extracts relevant flow information, 
-/// storing it in the provided flow_export vector.
+/// storing it in the provided flow_cache vector.
 ///
-/// @param packet The captured packet data from which flow information is extracted.
-/// @param sysuptime System uptime to correlate with the flow records.
-/// @param flow_export Pointer to a vector where the extracted flow records will be stored.
-void processFlowCache(const u_char *packet, time_t sysuptime, vector<record_flow> *flow_export);
+/// @param raw_packet The captured packet data from which flow information is extracted.
+/// @param uptime System uptime to correlate with the flow records.
+/// @param flow_cache Pointer to a vector where the extracted flow records will be stored.
+void processFlowCache(const u_char *raw_packet, time_t uptime, vector<record_flow> *flow_cache);
 
 /// @brief Exports NetFlow packets based on the specified time and system uptime
 ///
 /// This function handles the actual exporting of NetFlow packets using the provided
 /// timestamp and system uptime.
 ///
-/// @param tv The time value structure representing the time of the export.
-/// @param sysuptime System uptime to be included in the exported records.
-/// @param flow_export Pointer to a vector containing flow records to be exported.
-void exportNetFlowPackets(const struct timeval tv, time_t sysuptime, vector<record_flow> *flow_export);
+/// @param export_time The time value structure representing the time of the export.
+/// @param uptime System uptime to be included in the exported records.
+/// @param flow_cache Pointer to a vector containing flow records to be exported.
+void exportNetFlowPackets(const struct timeval export_time, time_t uptime, vector<record_flow> *flow_cache);
 
 /// @brief Converts NetFlow records from network byte order to host byte order
 ///
 /// This function modifies the provided NetFlow record to convert its fields from
 /// network byte order (big-endian) to host byte order (the order used by the host machine).
 ///
-/// @param rec Pointer to the NetFlow record to be converted.
-void convertNetFlowToHostOrder(record_flow *rec);
+/// @param flow_record Pointer to the NetFlow record to be converted.
+void convertNetFlowToHostOrder(record_flow *flow_record);
 
 /// @brief Populates a buffer with flow records for export
 ///
 /// This function fills the provided buffer with flow records up to the specified number,
 /// returning the total number of records written.
 ///
-/// @param flow_export Pointer to a vector of flow records to be exported.
-/// @param number The number of records to populate in the buffer.
-/// @param buffer Pointer to the buffer that will receive the flow records.
+/// @param flow_cache Pointer to a vector of flow records to be exported.
+/// @param max_records The number of records to populate in the buffer.
+/// @param export_buffer Pointer to the buffer that will receive the flow records.
 /// @return The number of records successfully written to the buffer.
-int populateFlowBuffer(vector<record_flow> *flow_export, int number, u_char *buffer);
+int populateFlowBuffer(vector<record_flow> *flow_cache, int max_records, u_char *export_buffer);
 
 /// @brief Populates a header buffer for NetFlow exports
 ///
 /// This function fills the provided buffer with a header that includes the timestamp, 
 /// system uptime, and count of flows, preparing it for export.
 ///
-/// @param tv The time value structure representing the time of the export.
-/// @param sysuptime System uptime to include in the header.
-/// @param flows_count The total number of flow records being exported.
-/// @param b Pointer to the buffer where the header will be populated.
-void populateHeaderBuffer(const struct timeval tv, time_t sysuptime, int flows_count, u_char *b);
+/// @param export_time The time value structure representing the time of the export.
+/// @param uptime System uptime to include in the header.
+/// @param flow_count The total number of flow records being exported.
+/// @param header_buffer Pointer to the buffer where the header will be populated.
+void populateHeaderBuffer(const struct timeval export_time, time_t uptime, int flow_count, u_char *header_buffer);
