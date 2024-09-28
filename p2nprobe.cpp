@@ -7,23 +7,22 @@
 
 #include "p2nprobe.hpp"
 
-double activeTimer_ms, inactiveTimer_ms;
-int flow_maxCount;
+double activeTimerMilliseconds, inactiveTimerMilliseconds;
 
-time_t boot_time_sec;
-suseconds_t boot_time_usec;
-bool boot_time_set = false;
+time_t systemBootTimeSec;
+suseconds_t systemBootTimeUsec;
+bool isBootTimeSet = false;
 
-vector<record_flow> flow_cache;
+vector<record_flow> flowCache;
 
-int flow_seq = 0;
+int flowSequence = 0;
 
-struct timeval tv_last; // timeval of the last packet
-time_t sysuptime_last;	// sysuptime of the last packet
+struct timeval lastPacketTime;
+time_t lastSysUptime;
 
-int sock;				   // socket descriptor
-struct sockaddr_in server; // address structure of the server
-struct hostent *servent;   // network host entry required by gethostbyname()
+int socketDescriptor;
+struct sockaddr_in serverAddress;
+struct hostent *serverEntry;
 
 void printUsage(const char *prog_name)
 {
@@ -44,13 +43,13 @@ int handleError(const string &message)
 
 void handlePacket(u_char *args, const struct pcap_pkthdr *header, const u_char *packet)
 {
-	if (!boot_time_set)
+	if (!isBootTimeSet)
 	{
-		boot_time_sec = header->ts.tv_sec;
-		boot_time_usec = header->ts.tv_usec;
-		boot_time_set = true;
+		systemBootTimeSec = header->ts.tv_sec;
+		systemBootTimeUsec = header->ts.tv_usec;
+		isBootTimeSet = true;
 	}
-	time_t sysuptime = (header->ts.tv_sec - boot_time_sec) * (double)1000 + round((header->ts.tv_usec - boot_time_usec) / (double)1000); // SysUpTime calculation
+	time_t sysuptime = (header->ts.tv_sec - systemBootTimeSec) * (double)1000 + round((header->ts.tv_usec - systemBootTimeUsec) / (double)1000); // SysUpTime calculation
 
 	vector<record_flow> flow_export;
 	int flows_count;
@@ -62,13 +61,13 @@ void handlePacket(u_char *args, const struct pcap_pkthdr *header, const u_char *
 	{
 		exportNetFlowPackets(header->ts, sysuptime, &flow_export); // exporting flows sending netflow packets to a collector
 
-		flow_seq += flows_count;
+		flowSequence += flows_count;
 	}
 
 	// Values for the residual export
-	tv_last.tv_sec = header->ts.tv_sec;
-	tv_last.tv_usec = header->ts.tv_usec;
-	sysuptime_last = sysuptime;
+	lastPacketTime.tv_sec = header->ts.tv_sec;
+	lastPacketTime.tv_usec = header->ts.tv_usec;
+	lastSysUptime = sysuptime;
 }
 
 void processFlowCache(const u_char *packet, time_t sysuptime, vector<record_flow> *flow_export)
@@ -93,12 +92,12 @@ void processFlowCache(const u_char *packet, time_t sysuptime, vector<record_flow
 		instant_export = true;
 
 	time_t active_time, inactive_time;
-	for (it = flow_cache.begin(); it != flow_cache.end(); ++it)
+	for (it = flowCache.begin(); it != flowCache.end(); ++it)
 	{
 		active_time = sysuptime - (*it).First;
 		inactive_time = sysuptime - (*it).Last;
 
-		if (active_time < activeTimer_ms && inactive_time < inactiveTimer_ms)
+		if (active_time < activeTimerMilliseconds && inactive_time < inactiveTimerMilliseconds)
 		{
 			if (my_ip->ip_src.s_addr == (*it).srcaddr && my_ip->ip_dst.s_addr == (*it).dstaddr && sport == (*it).srcport && dport == (*it).dstport && my_ip->ip_p == (*it).prot && my_ip->ip_tos == (*it).tos)
 			{
@@ -113,7 +112,7 @@ void processFlowCache(const u_char *packet, time_t sysuptime, vector<record_flow
 				if (instant_export)
 				{
 					flow_export->push_back(*it);
-					flow_cache.erase(it);
+					flowCache.erase(it);
 					it--;
 				}
 			}
@@ -122,7 +121,7 @@ void processFlowCache(const u_char *packet, time_t sysuptime, vector<record_flow
 		{
 			// cout << "export the flow (timers)" << endl;
 			flow_export->push_back(*it);
-			flow_cache.erase(it);
+			flowCache.erase(it);
 			it--;
 		}
 	}
@@ -132,15 +131,15 @@ void processFlowCache(const u_char *packet, time_t sysuptime, vector<record_flow
 		// cout << "add to the flow cache" << endl;
 		record = {my_ip->ip_src.s_addr, my_ip->ip_dst.s_addr, 0, 0, 0, 1, ntohs(my_ip->ip_len), (uint32_t)sysuptime, (uint32_t)sysuptime, sport, dport, 0, tcp_flags_packet, my_ip->ip_p, my_ip->ip_tos, 0, 0, 0, 0, 0};
 
-		flow_cache.push_back(record);
+		flowCache.push_back(record);
 
 		if (instant_export)
 		{
-			it = flow_cache.end();
+			it = flowCache.end();
 			it--;
 
 			flow_export->push_back(*it);
-			flow_cache.erase(it);
+			flowCache.erase(it);
 			it--;
 		}
 	}
@@ -150,7 +149,7 @@ void populateHeaderBuffer(const struct timeval tv, time_t sysuptime, int flows_c
 {
 	header_flow *headerf = (header_flow *)(buffer);
 
-	*headerf = {htons(5), htons(flows_count), htonl(sysuptime), htonl(tv.tv_sec), htonl(tv.tv_usec * 1000), htonl(flow_seq), 0, 0, 0};
+	*headerf = {htons(5), htons(flows_count), htonl(sysuptime), htonl(tv.tv_sec), htonl(tv.tv_usec * 1000), htonl(flowSequence), 0, 0, 0};
 }
 
 int populateFlowBuffer(vector<record_flow> *flow_export, int number, u_char *buffer)
@@ -188,7 +187,7 @@ void exportNetFlowPackets(const struct timeval tv, time_t sysuptime, vector<reco
 		int number = std::min(flows_count, 30);
 		populateHeaderBuffer(tv, sysuptime, number, buffer);
 		populateFlowBuffer(flow_export, number, buffer + SIZE_NF_HEADER);
-		sendto(sock, buffer, SIZE_NF_HEADER + number * SIZE_NF_RECORD, 0, (struct sockaddr *)&server, sizeof(server));
+		sendto(socketDescriptor, buffer, SIZE_NF_HEADER + number * SIZE_NF_RECORD, 0, (struct sockaddr *)&serverAddress, sizeof(serverAddress));
 		flows_count -= number;
 	}
 }
@@ -205,8 +204,8 @@ int main(int argc, char *argv[])
 
 	string collector = argv[1]; // The first argument is the collector
 	string pcap_file = argv[2]; // The second argument is the PCAP file
-	activeTimer_ms = DEFAULT_ACTIVE_TIMEOUT;
-	inactiveTimer_ms = DEFAULT_INACTIVE_TIMEOUT;
+	activeTimerMilliseconds = DEFAULT_ACTIVE_TIMEOUT;
+	inactiveTimerMilliseconds = DEFAULT_INACTIVE_TIMEOUT;
 	// Parse optional -a and -i parameters
 	int opt;
 	while ((opt = getopt(argc, argv, "a:i:")) != -1)
@@ -216,7 +215,7 @@ int main(int argc, char *argv[])
 		case 'a':
 			try
 			{
-				activeTimer_ms = atof(optarg) * 1000;
+				activeTimerMilliseconds = atof(optarg) * 1000;
 			}
 			catch (const invalid_argument &)
 			{
@@ -227,7 +226,7 @@ int main(int argc, char *argv[])
 		case 'i':
 			try
 			{
-				inactiveTimer_ms = atof(optarg) * 1000;
+				inactiveTimerMilliseconds = atof(optarg) * 1000;
 			}
 			catch (const invalid_argument &)
 			{
@@ -265,17 +264,17 @@ int main(int argc, char *argv[])
 	if (handle == nullptr)
 		return handleError("Failed to open PCAP file");
 
-	memset(&server, 0, sizeof(server));
-	server.sin_family = AF_INET;
+	memset(&serverAddress, 0, sizeof(serverAddress));
+	serverAddress.sin_family = AF_INET;
 
-	if ((servent = gethostbyname(host.c_str())) == NULL)
+	if ((serverEntry = gethostbyname(host.c_str())) == NULL)
 		return handleError("gethostbyname() failed");
 
-	memcpy(&server.sin_addr, servent->h_addr, servent->h_length);
+	memcpy(&serverAddress.sin_addr, serverEntry->h_addr, serverEntry->h_length);
 
-	server.sin_port = htons(port);
+	serverAddress.sin_port = htons(port);
 
-	if ((sock = socket(AF_INET, SOCK_DGRAM, 0)) == -1)
+	if ((socketDescriptor = socket(AF_INET, SOCK_DGRAM, 0)) == -1)
 		return handleError("socket() failed");
 
 	struct bpf_program fp; // the compiled filter
@@ -296,8 +295,8 @@ int main(int argc, char *argv[])
 	pcap_freecode(&fp); 
 	pcap_close(handle);
 
-	if (flow_cache.size() > 0)
-		exportNetFlowPackets(tv_last, sysuptime_last, &flow_cache);
+	if (flowCache.size() > 0)
+		exportNetFlowPackets(lastPacketTime, lastSysUptime, &flowCache);
 
 	return EXIT_SUCCESS;
 }
