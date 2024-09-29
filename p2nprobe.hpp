@@ -16,8 +16,11 @@
 using namespace std;
 
 // Default Values Of TIMEOUTs | From Lecture 10 - NetFlow | Slide 9/34 + 10/34
-#define DEFAULT_ACTIVE_TIMEOUT 30*60000
-#define DEFAULT_INACTIVE_TIMEOUT 15000
+//#define DEFAULT_ACTIVE_TIMEOUT 30*60
+//#define DEFAULT_INACTIVE_TIMEOUT 15
+// From out Task
+#define DEFAULT_ACTIVE_TIMEOUT 60
+#define DEFAULT_INACTIVE_TIMEOUT 60
 
 #define SIZE_ETHERNET   14 // Could Be 18 of 16 in WSL
 #define SIZE_NF_HEADER   24

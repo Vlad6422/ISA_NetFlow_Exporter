@@ -65,8 +65,8 @@ void setSystemBootTime(const struct timeval& packetTimestamp)
 // Function to calculate system uptime in milliseconds
 time_t calculateSystemUptime(const struct timeval& packetTimestamp)
 {
-    return (packetTimestamp.tv_sec - systemBootTimeSec) * 1000 + 
-           round((packetTimestamp.tv_usec - systemBootTimeUsec) / 1000.0);
+    return (packetTimestamp.tv_sec - systemBootTimeSec) * (double)1000 + 
+           round((packetTimestamp.tv_usec - systemBootTimeUsec) / (double)1000);
 }
 
 // Function to process and export flow records if any are present
@@ -245,6 +245,7 @@ void exportNetFlowPackets(const struct timeval tv, time_t sysuptime, vector<reco
 		sendto(socketDescriptor, buffer, SIZE_NF_HEADER + number * SIZE_NF_RECORD, 0, (struct sockaddr *)&serverAddress, sizeof(serverAddress));
 		flows_count -= number; // Reduce the remaining flows count
 	}
+    
 }
 
 /*****************************END***************************************/
@@ -263,8 +264,8 @@ int main(int argc, char *argv[])
     string collector = argv[1]; // The first argument is the collector (host:port)
     string pcap_file = argv[2]; // The second argument is the PCAP file
 
-    activeTimerMilliseconds = DEFAULT_ACTIVE_TIMEOUT; // Set default active timeout
-    inactiveTimerMilliseconds = DEFAULT_INACTIVE_TIMEOUT; // Set default inactive timeout
+    activeTimerMilliseconds = DEFAULT_ACTIVE_TIMEOUT * 1000; // Set default active timeout
+    inactiveTimerMilliseconds = DEFAULT_INACTIVE_TIMEOUT * 1000; // Set default inactive timeout
 
     // Parse optional -a (active timeout) and -i (inactive timeout) parameters
     int opt;
