@@ -1,0 +1,24 @@
+# README
+
+## Author
+**Name:** Malashchuk Vladyslav  
+**Login:** xmalas04
+
+## Date Created
+29.09.2024
+
+## Program Description
+This program is a PCAP NetFlow v5 exporter implemented in C++. It processes PCAP files to extract TCP flow records and sends them to a specified collector using UDP. The program is designed for Unix systems and utilizes several key libraries, including `libpcap` and `libnet`. 
+
+## Example Usage
+To run the program, use the following command:
+
+```bash
+./p2nprobe <host>:<port> <pcap_file_path> [-a <active_timeout> -i <inactive_timeout>]
+```
+## Files 
+ - p2nprobe.hpp
+ - p2nprobe.cpp
+ - manual.pdf
+ - README
+ - Makefile
