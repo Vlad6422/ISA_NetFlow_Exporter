@@ -51,42 +51,59 @@ int handleError(const string &message)
 	cerr << message << endl;
 	return EXIT_FAILURE;
 }
+// Function to set system boot time if not already set
+void setSystemBootTime(const struct timeval& packetTimestamp)
+{
+    if (!isBootTimeSet)
+    {
+        systemBootTimeSec = packetTimestamp.tv_sec;
+        systemBootTimeUsec = packetTimestamp.tv_usec;
+        isBootTimeSet = true;
+    }
+}
+
+// Function to calculate system uptime in milliseconds
+time_t calculateSystemUptime(const struct timeval& packetTimestamp)
+{
+    return (packetTimestamp.tv_sec - systemBootTimeSec) * 1000 + 
+           round((packetTimestamp.tv_usec - systemBootTimeUsec) / 1000.0);
+}
+
+// Function to process and export flow records if any are present
+void processAndExportFlows(const u_char *packet, time_t sysUptime, const struct timeval& packetTimestamp)
+{
+    vector<record_flow> flowRecords; // Container for exporting flow records
+    processFlowCache(packet, sysUptime, &flowRecords); // Process the flow cache
+
+    int flowCount = flowRecords.size();
+    if (flowCount > 0)
+    {
+        exportNetFlowPackets(packetTimestamp, sysUptime, &flowRecords); // Export the flow records
+        flowSequence += flowCount; // Update the flow sequence count
+    }
+}
 
 /*****************************END***************************************/
 
 /*****************************ALL USED FUNCTIONS***************************************/
 
+
+// Main packet handler function
 void handlePacket(u_char *args, const struct pcap_pkthdr *header, const u_char *packet)
 {
-	// Set the system boot time if it's not already set
-	if (!isBootTimeSet)
-	{
-		systemBootTimeSec = header->ts.tv_sec;
-		systemBootTimeUsec = header->ts.tv_usec;
-		isBootTimeSet = true;
-	}
+    // Set system boot time if not already set
+    setSystemBootTime(header->ts);
 
-	// Calculate system uptime in milliseconds
-	time_t sysuptime = (header->ts.tv_sec - systemBootTimeSec) * (double)1000 + round((header->ts.tv_usec - systemBootTimeUsec) / (double)1000);
+    // Calculate system uptime in milliseconds
+    time_t sysUptime = calculateSystemUptime(header->ts);
 
-	vector<record_flow> flow_export; // Container for exporting flow records
-	int flows_count;				 // Number of flows processed
+    // Process flows and export if necessary
+    processAndExportFlows(packet, sysUptime, header->ts);
 
-	// Process the flow cache based on the current packet and system uptime
-	processFlowCache(packet, sysuptime, &flow_export);
-	flows_count = flow_export.size(); // Get the count of processed flows
-
-	// If there are flows to export, send them to the collector
-	if (flows_count != 0)
-	{
-		exportNetFlowPackets(header->ts, sysuptime, &flow_export);
-		flowSequence += flows_count; // Update the total flow sequence count
-	}
-
-	// Update the last packet timestamp and system uptime
-	lastPacketTime.tv_sec = header->ts.tv_sec;
-	lastPacketTime.tv_usec = header->ts.tv_usec;
-	lastSysUptime = sysuptime;
+    // Update the last packet timestamp and system uptime
+    lastPacketTime.tv_sec = header->ts.tv_sec;
+    lastPacketTime.tv_usec = header->ts.tv_usec;
+    lastSysUptime = sysUptime;
 }
 
 void processFlowCache(const u_char *packet, time_t sysuptime, vector<record_flow> *flow_export)
