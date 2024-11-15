@@ -367,7 +367,6 @@ int main(int argc, char *argv[])
     // Export remaining flows in the cache if any
     if (flowCache.size() > 0)
     {
-        cout<<flowRecords.size();
         flowCache.insert(flowCache.end(), flowRecords.begin(), flowRecords.end());
         exportNetFlowPackets(lastPacketTime, lastSysUptime, &flowCache);
     }
