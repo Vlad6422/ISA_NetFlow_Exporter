@@ -8,7 +8,7 @@
 #include "p2nprobe.hpp"
 
 /*****************************GLOBAL***************************************/
-vector<record_flow> flowRecords;  
+vector<record_flow> flowRecords;
 // Timer variables for active and inactive states (in milliseconds)
 double activeTimerMilliseconds, inactiveTimerMilliseconds;
 
@@ -72,20 +72,19 @@ time_t calculateSystemUptime(const struct timeval &packetTimestamp)
 // Function to process and export flow records if any are present
 void processAndExportFlows(const u_char *packet, time_t sysUptime, const struct timeval &packetTimestamp)
 {
-   // vector<record_flow> flowRecords;                   // Container for exporting flow records
     processFlowCache(packet, sysUptime, &flowRecords); // Process the flow cache
 
     int flowCount = flowRecords.size();
-   // cout << flowCount << endl;
     if (flowCount > 29)
     {
-        
+
         exportNetFlowPackets(packetTimestamp, sysUptime, &flowRecords); // Export the flow records
         flowSequence += flowCount;                                      // Update the flow sequence count
     }
 }
 // Function to check if the packet matches an existing flow
-bool matchFlow(const struct ip *my_ip, const struct tcphdr *my_tcp, vector<record_flow>::iterator &flowIterator) {
+bool matchFlow(const struct ip *my_ip, const struct tcphdr *my_tcp, vector<record_flow>::iterator &flowIterator)
+{
     return (my_ip->ip_src.s_addr == flowIterator->srcaddr &&
             my_ip->ip_dst.s_addr == flowIterator->dstaddr &&
             my_tcp->th_sport == flowIterator->srcport &&
@@ -95,36 +94,37 @@ bool matchFlow(const struct ip *my_ip, const struct tcphdr *my_tcp, vector<recor
 }
 
 // Function to update an existing flow record with the packet data
-void updateFlow(vector<record_flow>::iterator &flowIterator, const struct ip *my_ip, const struct tcphdr *my_tcp, time_t sysuptime, bool shouldExportNow, vector<record_flow> *flow_export) {
-    flowIterator->dPkts++;                             // Increment packet count
-    flowIterator->dOctets += ntohs(my_ip->ip_len);     // Increment byte count
-    flowIterator->Last = sysuptime;                    // Update last seen time
-    flowIterator->tcp_flags |= my_tcp->th_flags;       // Update TCP flags
+void updateFlow(vector<record_flow>::iterator &flowIterator, const struct ip *my_ip, const struct tcphdr *my_tcp, time_t sysuptime, bool shouldExportNow, vector<record_flow> *flow_export)
+{
+    flowIterator->dPkts++;                         // Increment packet count
+    flowIterator->dOctets += ntohs(my_ip->ip_len); // Increment byte count
+    flowIterator->Last = sysuptime;                // Update last seen time
+    flowIterator->tcp_flags |= my_tcp->th_flags;   // Update TCP flags
 
     // Export the flow if necessary
-    if (shouldExportNow) {
-        cout<< "Added in updateFlow"<< endl;;
-        flow_export->push_back(*flowIterator);         // Push flow to export buffer
-        flowCache.erase(flowIterator);                 // Remove from cache
-        flowIterator--;                                // Adjust iterator after erasing
+    if (shouldExportNow)
+    {
+        flow_export->push_back(*flowIterator); // Push flow to export buffer
+        flowCache.erase(flowIterator);         // Remove from cache
+        flowIterator--;                        // Adjust iterator after erasing
     }
 }
 
 // Function to create a new flow record
-void createNewFlow(const struct ip *my_ip, const struct tcphdr *my_tcp, time_t sysuptime, vector<record_flow> *flow_export,bool shouldExportNow) {
+void createNewFlow(const struct ip *my_ip, const struct tcphdr *my_tcp, time_t sysuptime, vector<record_flow> *flow_export, bool shouldExportNow)
+{
     record_flow newFlow = {
         my_ip->ip_src.s_addr, my_ip->ip_dst.s_addr, 0, 0, 0, 1, ntohs(my_ip->ip_len),
         (uint32_t)sysuptime, (uint32_t)sysuptime, my_tcp->th_sport, my_tcp->th_dport, 0,
-        my_tcp->th_flags, my_ip->ip_p, my_ip->ip_tos, 0, 0, 0, 0, 0
-    };
+        my_tcp->th_flags, my_ip->ip_p, my_ip->ip_tos, 0, 0, 0, 0, 0};
 
     flowCache.push_back(newFlow); // Add the new flow to the cache
 
     // Export the new flow if necessary
-    if (shouldExportNow) {
+    if (shouldExportNow)
+    {
         auto flowIterator = flowCache.end();
         flowIterator--;
-         cout<< "Added in createNewFlow"<< endl;;
         flow_export->push_back(*flowIterator); // Add to export
         flowCache.erase(flowIterator);         // Remove from cache
         flowIterator--;
@@ -190,7 +190,8 @@ void handlePacket(u_char *args, const struct pcap_pkthdr *header, const u_char *
 }
 
 // Function to process an incoming packet
-void processFlowCache(const u_char *packet, time_t sysuptime, vector<record_flow> *flow_export) {
+void processFlowCache(const u_char *packet, time_t sysuptime, vector<record_flow> *flow_export)
+{
     // Extract IP and TCP headers from the packet
     const struct ip *my_ip = (struct ip *)(packet + SIZE_ETHERNET);
     const struct tcphdr *my_tcp = (struct tcphdr *)(packet + SIZE_ETHERNET + my_ip->ip_hl * 4);
@@ -206,19 +207,23 @@ void processFlowCache(const u_char *packet, time_t sysuptime, vector<record_flow
     time_t active_time, inactive_time; // Active and inactive time for flow validation
 
     // Iterate through flow cache to update or add flows
-    for (flowIterator = flowCache.begin(); flowIterator != flowCache.end(); ++flowIterator) {
-        active_time = sysuptime - flowIterator->First;   // Calculate active time of the flow
+    for (flowIterator = flowCache.begin(); flowIterator != flowCache.end(); ++flowIterator)
+    {
+        active_time = sysuptime - flowIterator->First;  // Calculate active time of the flow
         inactive_time = sysuptime - flowIterator->Last; // Calculate inactive time of the flow
 
         // If flow is still active, check if packet matches
-        if (active_time < activeTimerMilliseconds && inactive_time < inactiveTimerMilliseconds) {
-            if (matchFlow(my_ip, my_tcp, flowIterator)) {
+        if (active_time < activeTimerMilliseconds && inactive_time < inactiveTimerMilliseconds)
+        {
+            if (matchFlow(my_ip, my_tcp, flowIterator))
+            {
                 isFlowAdded = true; // Flow matched
 
                 updateFlow(flowIterator, my_ip, my_tcp, sysuptime, shouldExportNow, flow_export);
             }
-        } else { // Flow is inactive or expired
-            cout<< "Added in processFlowCache"<< endl;;
+        }
+        else
+        {                                          // Flow is inactive or expired
             flow_export->push_back(*flowIterator); // Export expired flow
             flowCache.erase(flowIterator);         // Remove from cache
             flowIterator--;                        // Adjust iterator
@@ -226,8 +231,9 @@ void processFlowCache(const u_char *packet, time_t sysuptime, vector<record_flow
     }
 
     // If no existing flow was found, create a new flow record
-    if (!isFlowAdded) {
-        createNewFlow(my_ip, my_tcp, sysuptime, flow_export,shouldExportNow);
+    if (!isFlowAdded)
+    {
+        createNewFlow(my_ip, my_tcp, sysuptime, flow_export, shouldExportNow);
     }
 }
 
@@ -243,7 +249,6 @@ void exportNetFlowPackets(const struct timeval tv, time_t sysuptime, vector<reco
         int number = std::min(flows_count, 30);                           // Determine how many flows to send in this batch
         populateHeaderBuffer(tv, sysuptime, number, buffer);              // Populate the header
         populateFlowBuffer(flow_export, number, buffer + SIZE_NF_HEADER); // Populate the flow records
-cout << "Send" << endl;
         // Send the packet to the collector
         sendto(socketDescriptor, buffer, SIZE_NF_HEADER + number * SIZE_NF_RECORD, 0, (struct sockaddr *)&serverAddress, sizeof(serverAddress));
         flows_count -= number; // Reduce the remaining flows count
@@ -360,10 +365,10 @@ int main(int argc, char *argv[])
     pcap_close(handle); // Close the PCAP file
 
     // Export remaining flows in the cache if any
-    if (flowCache.size() > 0){
-        cout << "Last Send with "<< flowCache.size() << endl;
-        cout << "flowCache.size() "<< flowCache.size() << endl;
-        cout << "flowRecords.size() "<< flowRecords.size() << endl;
+    if (flowCache.size() > 0)
+    {
+        cout<<flowRecords.size();
+        flowCache.insert(flowCache.end(), flowRecords.begin(), flowRecords.end());
         exportNetFlowPackets(lastPacketTime, lastSysUptime, &flowCache);
     }
     return EXIT_SUCCESS; // Exit successfully
